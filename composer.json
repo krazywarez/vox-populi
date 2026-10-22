@@ -1,5 +1,5 @@
 {
     "require": {
-        "tumblr/tumblr": "^0.4.0"
+        "tumblr/tumblr": "^0.4.2"
     }
 }
