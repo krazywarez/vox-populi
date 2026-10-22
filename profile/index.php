@@ -1,5 +1,7 @@
 <?php
     require __DIR__ . '/../vendor/autoload.php';
+    require_once __DIR__ . '/../includes/posts.php';
+    require_once __DIR__ . '/../includes/auth.php';
 
     session_start();
 
@@ -9,67 +11,7 @@
     $requestHandler = $client->getRequestHandler();
     $requestHandler->setBaseUrl('https://www.tumblr.com/');
 
-    // Check if the user has already authenticated
-    if(isset($_SESSION['perm_token']) && !empty($_SESSION['perm_token']) && isset($_SESSION['perm_secret']) && !empty($_SESSION['perm_secret'])) {
-        $token = $_SESSION['perm_token'];
-        $token_secret = $_SESSION['perm_secret'];
-    }
-    // Check if the user was here earlier by checking cookies
-    else if (isset($_COOKIE['perm_token']) && !empty($_COOKIE['perm_token']) && isset($_COOKIE['perm_secret']) && !empty($_COOKIE['perm_secret'])) {
-        $token = $_COOKIE['perm_token'];
-        $token_secret = $_COOKIE['perm_secret'];
-    }
-    // Check if this is the user's first visit
-    else if (!isset($_GET['oauth_verifier'])) {
-
-        // Grab the oauth token
-        $resp = $requestHandler->request('POST', 'oauth/request_token', array());
-        $out = $result = $resp->body;
-        $data = array();
-        parse_str($out, $data);
-
-        // Save temporary tokens to session
-        $_SESSION['tmp_token'] = $data['oauth_token'];
-        $_SESSION['tmp_secret'] = $data['oauth_token_secret'];
-
-        // Redirect user to Tumblr auth page
-        session_regenerate_id(true);
-        $header_url = 'https://www.tumblr.com/oauth/authorize?oauth_token=' . $data['oauth_token'];
-        header('Location: ' . $header_url);
-        die();
-
-    }
-    // Check if the user was just sent back from the Tumblr authentication site
-    else {
-
-        $verifier = $_GET['oauth_verifier'];
-
-        // Use the stored temporary tokens
-        $client->setToken($_SESSION['tmp_token'], $_SESSION['tmp_secret']);
-
-        // Access the permanent tokens
-        $resp = $requestHandler->request('POST', 'oauth/access_token', array('oauth_verifier' => $verifier));
-        $out = $result = $resp->body;
-        $data = array();
-        parse_str($out, $data);
-
-        // Set permanent tokens
-        $token = $data['oauth_token'];
-        $token_secret = $data['oauth_token_secret'];;
-        $_SESSION['perm_token'] = $data['oauth_token'];
-        $_SESSION['perm_secret'] = $data['oauth_token_secret'];
-
-        // Set cookies in case the user comes back later
-        setcookie("perm_token", $_SESSION['perm_token']);
-        setcookie("perm_secret", $_SESSION['perm_secret']);
-
-        // Redirect user to homepage for a clean URL
-        session_regenerate_id(true);
-        $header_url = 'https://example.com/vox-populi/';
-        header('Location: ' . $header_url);
-        die();
-
-    }
+    list($token, $token_secret) = tumblr_tokens($client, $requestHandler);
 
     // Authenticate via OAuth
     $client = new Tumblr\API\Client(
@@ -79,10 +21,6 @@
         $token_secret
     );
 
-    // Set up a function to check if variables are blank later (this function accepts 0, 0.0, and "0" as valid)
-    function not_blank($value) {
-        return !empty($value) && isset($value) && $value !== '';
-    }
 
     // Echo HTML contents
     echo '<!doctype html><html lang="en"><head>
@@ -267,74 +205,11 @@
                 $card_columns = '<div class="card-columns py-3">';
                 // print_r($blog_posts);
                 foreach ($blog_posts->posts as $post) {
-                    $card_columns .= '<div class="card" data-type="' . $post->type . '" data-id="' . $post->id_string . '">';
-                    $card_columns .= '<div class="card-header d-flex justify-content-between"><div class="card-header-blog"><a href="' . $post->blog->url . '" target="_blank"><img class="avatar" src="' . $client->getBlogAvatar($post->blog_name, 32) . '"></a>';
-                    $card_columns .= '<a href="' . $post->blog->url . '">' . $post->blog_name . '</a>';
-                    if (not_blank($post->reblogged_from_name)) {
-                        $card_columns .= '<i data-feather="repeat"></i><a href="' . $post->reblogged_from_url . '">' . $post->reblogged_from_name . '</a>';
-                        if (!$post->reblogged_from_following) {
-                            $card_columns .= '<a href="javascript:void(0);" onclick="follow(\'' . $post->reblogged_from_name . '\', ' . $post->reblogged_from_uuid . ');" data-follow-id="' . $post->reblogged_from_uuid . '"><span class="badge badge-secondary ml-2">Follow</span></a>';
-                        }
-                    }
-                    $card_columns .= '</div>';
+                    $card_columns .= post_header($client, $post);
 
-                    // Add 'follow user' button if not following blog
-                    if ($post->followed) {
-                        $card_columns .= '</div>';
-                    } else {
-                        $card_columns .= '<a href="javascript:void(0);" onclick="follow(\'' . $post->blog_name . '\', ' . $post->blog->uuid . ');" title="Follow" data-id="' . $post->blog->uuid . '"><i data-feather="user-plus"></i></a></div>';
-                    }
-
-                    // Add root blog (original poster)
-                    if ($post->reblogged_root_following) {
-                        $card_columns .= '<div class="card-header d-flex justify-content-between"><div class="card-header-blog">';
-                        $card_columns .= '<a href="' . $post->reblogged_root_url . '" target="_blank"><img class="avatar" src="' . $client->getBlogAvatar($post->reblogged_root_name, 32) . '"></a>';
-                        $card_columns .= '<a href="' . $post->reblogged_root_url . '">' . $post->reblogged_root_name . '</a></div>';
-                        $card_columns .= '</div>';
-                    } else {
-                        $card_columns .= '<div class="card-header d-flex justify-content-between"><div class="card-header-blog">';
-                        $card_columns .= '<a href="' . $post->reblogged_root_url . '" target="_blank"><img class="avatar" src="' . $client->getBlogAvatar($post->reblogged_root_name, 32) . '"></a>';
-                        $card_columns .= '<a href="' . $post->reblogged_root_url . '">' . $post->reblogged_root_name . '</a></div>';
-                        if (strpos($post->reblogged_root_name, 'deactivated') == false) {
-                            $card_columns .= '<a href="javascript:void(0);" onclick="follow(\'' . $post->reblogged_root_name . '\');" title="Follow" data-id="' . $post->reblogged_root_uuid . '"><i data-feather="user-plus"></i></a>';
-                        }
-                        $card_columns .= '</div>';
-                    }
-
-                    if ($post->type == 'photo') {
-                        $card_columns .= '<a href="' . $post->photos[0]->original_size->url . '"><img src="' . $post->photos[0]->original_size->url . '" class="card-img" alt="..."></a>';
-                    }
-                    if ($post->type == 'video') {
-                        $card_columns .= '<video controls poster="'.$post->thumbnail_url.'" class="card-img"><source src="'.$post->video_url.'"></source></video>';
-                    }
+                    $card_columns .= post_media($post);
                     $card_columns .= '<div class="card-body">';
-                    if ($post->type == 'photo') {
-                        if (not_blank($post->caption)) {
-                            $card_columns .= '<p class="card-text post-caption">' . $post->caption . '</p>';
-                        }
-                    }
-                    if ($post->type == 'text') {
-                        if (not_blank($post->title)) {
-                            $card_columns .= '<h5 class="card-title post-title">' . $post->title . '</h5>';
-                        }
-                        if (not_blank($post->body)) {
-                            $card_columns .= '<p class="card-text post-body">' . $post->body . '</p>';
-                        }
-                    }
-                    if ($post->type == 'answer') {
-                        $card_columns .= '<p class="card-text"><b>' . $post->asking_name . '</b>: ' . $post->question . '</p>';
-                        $card_columns .= '<hr>';
-                        $card_columns .= $post->answer;
-                    }
-                    if ($post->type == 'quote') {
-                        $card_columns .= '<blockquote class="card-text post-quote">' . $post->summary;
-                        $card_columns .= '<br><br><cite>' . $post->reblog->comment . '</cite></blockquote>';
-                    }
-                    if ($post->type == 'chat') {
-                        for ($i = 0; $i <= count($post->dialogue); $i++) {
-                            $card_columns .= '<blockquote class="card-text post-chat-' . $i . '">' . (not_blank($post->dialogue[$i]->name) ? ('<b>' . $post->dialogue[$i]->name . '</b>: ') : "") . $post->dialogue[$i]->phrase . '</blockquote>';
-                        }
-                    }
+                    $card_columns .= post_content($post);
                     // $card_columns .= '<a href="' . $post->post_url . '" class="card-link">Visit Post &rarr;</a>';
                     $card_columns .= '<div class="card-footer d-flex justify-content-between align-items-center p-0"><div class="note-count">' . number_format($post->note_count, 0) . ' notes</div>';
                     $card_columns .= '<div class="post-icons"><a href="' . $post->post_url . '" target="_blank" title="View on Tumblr"><i data-feather="external-link"></i></a>';
