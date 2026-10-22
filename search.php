@@ -245,7 +245,7 @@
 
                     if ($post->followed != true) {
                         // Send user to action.php to follow a new blog
-                        $query_string = 'action=follow&blog_name=' . urlencode($post->blog_name) . '&callback=' . urlencode('https://' . $_SERVER[HTTP_HOST] . $_SERVER[REQUEST_URI]);
+                        $query_string = 'action=follow&blog_name=' . urlencode($post->blog_name) . '&callback=' . urlencode('https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
                         $card_columns .= '<a href="action.php?' . htmlentities($query_string) . '"><i data-feather="user-plus"></i></a></div>';
                     } else {
                         $card_columns .= '</div>';
